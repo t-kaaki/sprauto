@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Sun, Moon, Play, RotateCcw, Info, Leaf, Ruler, Droplets } from 'lucide-react';
+import { Sun, Moon, Play, RotateCcw, Info, Leaf, Ruler, Droplets, CheckCircle, Trophy } from 'lucide-react';
 import { motion } from 'motion/react';
 
 type DayState = {
@@ -16,6 +16,7 @@ export default function App() {
   const [isLightOn, setIsLightOn] = useState(true);
   const [isWatered, setIsWatered] = useState(false);
   const [history, setHistory] = useState<DayState[]>([{ day: 0, isLightOn: true, isWatered: false }]);
+  const [isHarvested, setIsHarvested] = useState(false);
 
   // スプラウトの個体データを生成（初回のみ）
   const sprouts = useMemo(() => {
@@ -151,6 +152,9 @@ export default function App() {
     return calculateStats(history, isFinished);
   }, [history, currentDay]);
 
+  const isSuccess = isHarvested && stats.pattern === 'SPROUT_GREENED';
+  const showResult = isHarvested || stats.isDead || currentDay === MAX_DAYS;
+
   const handleNextDay = () => {
     if (currentDay < MAX_DAYS && !stats.isDead) {
       const nextDay = currentDay + 1;
@@ -165,6 +169,13 @@ export default function App() {
     setHistory([{ day: 0, isLightOn: true, isWatered: false }]);
     setIsLightOn(true);
     setIsWatered(false);
+    setIsHarvested(false);
+  };
+
+  const handleHarvest = () => {
+    if (stats.isGerminated && !stats.isDead) {
+      setIsHarvested(true);
+    }
   };
 
   const toggleLight = () => {
@@ -253,6 +264,24 @@ export default function App() {
                 </button>
               </div>
             </div>
+
+            {/* 収穫ボタン */}
+            {currentDay >= 5 && !isHarvested && (
+              <motion.div 
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="mt-4"
+              >
+                <button
+                  onClick={handleHarvest}
+                  disabled={stats.isDead || !stats.isGerminated}
+                  className="w-full flex items-center justify-center gap-2 px-5 py-4 rounded-xl bg-amber-500 text-white font-bold hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-amber-500/20"
+                >
+                  <CheckCircle size={24} />
+                  収穫する！
+                </button>
+              </motion.div>
+            )}
 
             {/* プログレスバー */}
             <div className="h-2 bg-stone-100 rounded-full overflow-hidden">
@@ -353,6 +382,76 @@ export default function App() {
               animate={{ opacity: isLightOn ? 1 : 0 }}
               transition={{ duration: 1 }}
             />
+
+            {/* 収穫結果オーバーレイ */}
+            {showResult && (
+              <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="absolute inset-0 z-50 bg-stone-900/80 backdrop-blur-sm flex items-center justify-center p-6"
+              >
+                <motion.div 
+                  initial={{ scale: 0.9, y: 20 }}
+                  animate={{ scale: 1, y: 0 }}
+                  className="bg-white rounded-3xl shadow-2xl max-w-lg w-full overflow-hidden"
+                >
+                  <div className={`${isSuccess ? 'bg-emerald-600' : 'bg-red-600'} p-8 text-white text-center relative`}>
+                    <div className="absolute top-4 right-4 opacity-20">
+                      <Trophy size={80} />
+                    </div>
+                    <Trophy size={48} className="mx-auto mb-4 text-amber-300" />
+                    <h2 className="text-3xl font-black mb-2">
+                      {isSuccess ? '収穫完了！' : '育成失敗...'}
+                    </h2>
+                    <p className="opacity-90">
+                      {isSuccess ? 'あなたが育てたスプラウトの記録です' : '残念ながら、良好な状態には育ちませんでした。'}
+                    </p>
+                  </div>
+
+                  <div className="p-8 space-y-6">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="bg-stone-50 p-4 rounded-2xl border border-stone-100">
+                        <div className="text-xs font-bold text-stone-400 uppercase mb-1">最終草丈</div>
+                        <div className="text-2xl font-bold text-stone-800">{(stats.height / 10).toFixed(1)} <span className="text-sm font-normal text-stone-500">cm</span></div>
+                      </div>
+                      <div className="bg-stone-50 p-4 rounded-2xl border border-stone-100">
+                        <div className="text-xs font-bold text-stone-400 uppercase mb-1">育成日数</div>
+                        <div className="text-2xl font-bold text-stone-800">{currentDay} <span className="text-sm font-normal text-stone-500">日</span></div>
+                      </div>
+                    </div>
+
+                    <div className={`p-5 rounded-2xl border ${isSuccess ? 'bg-emerald-50 border-emerald-100' : 'bg-red-50 border-red-100'}`}>
+                      <div className="flex items-center gap-2 mb-2">
+                        <Leaf size={18} className={isSuccess ? 'text-emerald-600' : 'text-red-600'} />
+                        <span className={`text-sm font-bold ${isSuccess ? 'text-emerald-800' : 'text-red-800'}`}>育成タイプ</span>
+                      </div>
+                      <div className={`text-lg font-bold ${isSuccess ? 'text-emerald-700' : 'text-red-700'}`}>
+                        {stats.pattern === 'SEEDLING_HEALTHY' ? '日光を当て続けた苗' :
+                         stats.pattern === 'SEEDLING_ETIOLATED' ? '徒長した苗(光→暗)' :
+                         stats.pattern === 'SPROUT_GREENED' ? '緑化した苗(暗→光)' :
+                         stats.pattern === 'SPROUT_RE_ETIOLATED' ? '再徒長した苗(暗→光→暗)' :
+                         stats.pattern === 'SPROUT_YELLOW' ? '黄色のスプラウト' : '不明'}
+                      </div>
+                      <p className={`text-sm mt-2 leading-relaxed ${isSuccess ? 'text-emerald-600' : 'text-red-600'}`}>
+                        {stats.pattern === 'SEEDLING_HEALTHY' ? '非常に健康で丈夫な苗に育ちました！光合成が活発に行われ、栄養満点です。' :
+                         stats.pattern === 'SEEDLING_ETIOLATED' ? '途中で暗くなったため、再び光を求めて伸び始めました。環境の変化に敏感に反応しましたね。' :
+                         stats.pattern === 'SPROUT_GREENED' ? '理想的なスプラウトです！暗所で茎を伸ばし、最後に光を当てて栄養価を高めることができました。' :
+                         stats.pattern === 'SPROUT_RE_ETIOLATED' ? '一度緑化しましたが、再び暗所に戻したことで茎がさらに伸びました。植物の生命力を感じます。' :
+                         stats.pattern === 'SPROUT_YELLOW' ? '光を全く浴びずに育ったスプラウトです。非常に柔らかく、光を求める必死な姿が印象的です。' : ''}
+                      </p>
+                    </div>
+
+                    <button
+                      onClick={handleReset}
+                      className="w-full flex items-center justify-center gap-2 px-6 py-4 rounded-xl bg-stone-800 text-white font-bold hover:bg-stone-900 transition-all"
+                    >
+                      <RotateCcw size={20} />
+                      もう一度育てる
+                    </button>
+                  </div>
+                </motion.div>
+              </motion.div>
+            )}
 
             {/* 描画エリア */}
             <div className="relative z-10 flex-1 flex items-end justify-center pb-12">
