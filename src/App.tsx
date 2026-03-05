@@ -28,78 +28,128 @@ export default function App() {
   }, []);
 
   // 現在の履歴からスプラウトの平均的な状態を計算
-  const calculateStats = (hist: DayState[]) => {
+  const calculateStats = (hist: DayState[], includeLastDay: boolean = false) => {
     let height = 0;
     let stemWidth = 4;
     let leafColor = '#FEF08A'; // 初期は黄色
     let leafSize = 0;
     let isGerminated = false;
-    let waterLevel = 100; // 0 ~ 100
+    let waterLevel = 0; // 0 ~ 100 (初期状態は乾燥)
     let isDead = false;
     let hasGreened = false;
+    let darkDaysEarly = 0;
+    let lightDaysEarly = 0;
 
-    hist.forEach((state, index) => {
+    // 通常は設定中の「最新日」の成長は含めないが、
+    // 終了時（includeLastDay=true）はすべての日の成長を含める
+    const daysToProcess = includeLastDay ? hist : hist.slice(0, -1);
+    const currentPendingState = hist[hist.length - 1];
+
+    daysToProcess.forEach((state, index) => {
       // 水分の計算
       if (state.isWatered) {
         waterLevel = 100;
       } else {
-        waterLevel = Math.max(0, waterLevel - 40); // 1日水やりしないと40減る
+        waterLevel = Math.max(0, waterLevel - 40);
       }
 
-      if (waterLevel === 0 && index > 0) {
-        // 水分が0になると枯れるリスク
+      if (waterLevel === 0 && isGerminated) {
         isDead = true;
       }
 
       if (index === 0) return;
       
-      // 発芽の判定（最初の数日に水分が必要）
       if (index === 1 && waterLevel > 0) {
         isGerminated = true;
+        leafSize = 6; // 発芽時に最小限の葉のサイズを持たせる
       }
 
-      if (index >= 2 && isGerminated && !isDead) {
-        // 成長の計算
-        // 最初から光が当たっていると、茎が伸びずに葉が展開してしまう（スプラウトにならない）
+      if (index >= 1 && index <= 4 && isGerminated) {
+        if (state.isLightOn) lightDaysEarly++;
+        else darkDaysEarly++;
+      }
+
+      if (isGerminated && !isDead) {
         let growth = 0;
+        let leafGrowth = 0;
+        
         if (state.isLightOn) {
-          // 光がある場合：茎の伸びは抑えられる（特に初期）
-          growth = index <= 5 ? 6 : 10;
+          // 明所での成長
+          growth = index <= 5 ? 8 : 12;
+          leafGrowth = 4;
           hasGreened = true;
+          stemWidth = Math.min(stemWidth + 0.8, 10);
         } else {
-          // 光がない場合：光を求めて茎が長く伸びる（徒長）
-          growth = 28;
+          // 暗所での成長（徒長）
+          growth = 35; // 徒長時は急激に伸びる
+          leafGrowth = 1.5; // 葉は小さいが、見える程度には育つ
+          stemWidth = Math.max(stemWidth - 0.3, 2.0);
         }
         
         height += growth;
-        
-        // 茎の太さ（明所の方が太くなる）
-        if (state.isLightOn) {
-          stemWidth = Math.min(stemWidth + 0.8, 8);
-        } else {
-          stemWidth = Math.max(stemWidth - 0.3, 2.5);
-        }
+        leafSize = Math.min(leafSize + leafGrowth, 24);
       }
     });
 
-    // 枯れた場合の見た目の変化
-    if (isDead) {
-      leafColor = '#854D0E'; // 茶色
-      leafSize = Math.max(0, leafSize - 3); // しおれる
-    } else if (hist.length > 2 && isGerminated) {
-      // 葉の色と大きさ
-      leafColor = hasGreened ? '#22C55E' : '#FDE047';
-      // 光を浴びると葉が大きく展開する
-      leafSize = hasGreened ? 16 : 7;
+    // 水分量の表示用
+    let displayWaterLevel = waterLevel;
+    if (!includeLastDay && currentPendingState) {
+      if (currentPendingState.isWatered) {
+        displayWaterLevel = 100;
+      }
     }
 
-    const isEtiolated = height > 180 && stemWidth < 4; // 徒長（スプラウトらしい姿）
-    const isNormalSeedling = hasGreened && height < 120; // 普通の苗（短くて緑）
+    // 成長パターンの判定用
+    const lastState = daysToProcess[daysToProcess.length - 1];
+    const isCurrentlyLight = lastState ? lastState.isLightOn : false;
 
-    return { height, stemWidth, leafColor, leafSize, isGerminated, waterLevel, isDead, isEtiolated, isNormalSeedling };
+    let pattern = 'NONE';
+    if (isGerminated && !isDead) {
+      if (lightDaysEarly >= darkDaysEarly) {
+        pattern = isCurrentlyLight ? 'SEEDLING_HEALTHY' : 'SEEDLING_ETIOLATED';
+      } else {
+        if (isCurrentlyLight) {
+          pattern = 'SPROUT_GREENED';
+        } else {
+          pattern = hasGreened ? 'SPROUT_RE_ETIOLATED' : 'SPROUT_YELLOW';
+        }
+      }
+    }
+
+    if (isDead) {
+      leafColor = '#854D0E';
+      leafSize = Math.max(0, leafSize - 5);
+    } else if (isGerminated) {
+      // 葉の色決定
+      if (pattern === 'SEEDLING_HEALTHY') leafColor = '#166534';
+      else if (pattern === 'SEEDLING_ETIOLATED') leafColor = '#86EFAC';
+      else if (pattern === 'SPROUT_GREENED') leafColor = '#22C55E';
+      else if (pattern === 'SPROUT_RE_ETIOLATED') leafColor = '#4ADE80';
+      else leafColor = '#FDE047';
+    }
+
+    const isEtiolated = lightDaysEarly < darkDaysEarly;
+    const isNormalSeedling = !isEtiolated;
+
+    return { 
+      height, 
+      stemWidth, 
+      leafColor, 
+      leafSize, 
+      isGerminated, 
+      waterLevel: displayWaterLevel, 
+      isDead, 
+      isEtiolated, 
+      isNormalSeedling,
+      pattern
+    };
   };
 
-  const stats = calculateStats(history);
+  const stats = useMemo(() => {
+    const isFinished = currentDay === MAX_DAYS;
+    // 終了時は最後の日も計算に含める
+    return calculateStats(history, isFinished);
+  }, [history, currentDay]);
 
   const handleNextDay = () => {
     if (currentDay < MAX_DAYS && !stats.isDead) {
@@ -142,7 +192,7 @@ export default function App() {
     
     if (stats.isDead) return "水分が足りず、枯れてしまいました。";
     if (currentDay === 0) return "種まきをしました。発芽するまでは適度な水分を与えて見守りましょう。";
-    if (currentDay === 1 && !stats.isGerminated) return "水分が足りないため、発芽できません。";
+    if (!stats.isGerminated) return "水分が足りないため、発芽できません。まずは水を与えてみましょう。";
     if (currentDay === 1) return "種が割れて根が出始めました（発芽）。";
     
     const previousState = history[currentDay - 1];
@@ -216,59 +266,59 @@ export default function App() {
           </div>
 
           {/* 環境設定 */}
-          <div className="bg-white rounded-2xl shadow-sm border border-stone-200 p-6">
-            <h2 className="text-sm font-bold text-stone-400 uppercase tracking-wider mb-4">環境設定 (日照・水分)</h2>
-            <div className="space-y-4">
-              <div className="flex gap-4">
+          <div className="bg-white rounded-2xl shadow-sm border border-stone-200 p-5">
+            <h2 className="text-xs font-bold text-stone-400 uppercase tracking-wider mb-3">環境設定 (日照・水分)</h2>
+            <div className="space-y-3">
+              <div className="flex gap-3">
                 <button
                   onClick={() => !isLightOn && toggleLight()}
-                  className={`flex-1 flex flex-col items-center justify-center gap-3 p-4 rounded-xl border-2 transition-all ${
+                  className={`flex-1 flex flex-col items-center justify-center gap-1.5 py-2.5 rounded-lg border transition-all ${
                     isLightOn 
                       ? 'border-amber-400 bg-amber-50 text-amber-700' 
                       : 'border-stone-100 bg-stone-50 text-stone-400 hover:border-stone-200'
                   }`}
                 >
-                  <Sun size={32} className={isLightOn ? 'fill-amber-400' : ''} />
-                  <span className="font-bold">明所 (光あり)</span>
+                  <Sun size={20} className={isLightOn ? 'fill-amber-400' : ''} />
+                  <span className="text-xs font-bold">明所</span>
                 </button>
                 <button
                   onClick={() => isLightOn && toggleLight()}
-                  className={`flex-1 flex flex-col items-center justify-center gap-3 p-4 rounded-xl border-2 transition-all ${
+                  className={`flex-1 flex flex-col items-center justify-center gap-1.5 py-2.5 rounded-lg border transition-all ${
                     !isLightOn 
                       ? 'border-indigo-400 bg-indigo-50 text-indigo-700' 
                       : 'border-stone-100 bg-stone-50 text-stone-400 hover:border-stone-200'
                   }`}
                 >
-                  <Moon size={32} className={!isLightOn ? 'fill-indigo-400' : ''} />
-                  <span className="font-bold">暗所 (光なし)</span>
+                  <Moon size={20} className={!isLightOn ? 'fill-indigo-400' : ''} />
+                  <span className="text-xs font-bold">暗所</span>
                 </button>
               </div>
-              <div className="flex gap-4">
+              <div className="flex gap-3">
                 <button
                   onClick={() => !isWatered && toggleWater()}
-                  className={`flex-1 flex flex-col items-center justify-center gap-3 p-4 rounded-xl border-2 transition-all ${
+                  className={`flex-1 flex flex-col items-center justify-center gap-1.5 py-2.5 rounded-lg border transition-all ${
                     isWatered 
                       ? 'border-blue-400 bg-blue-50 text-blue-700' 
                       : 'border-stone-100 bg-stone-50 text-stone-400 hover:border-stone-200'
                   }`}
                 >
-                  <Droplets size={32} className={isWatered ? 'fill-blue-400' : ''} />
-                  <span className="font-bold">水やりあり</span>
+                  <Droplets size={20} className={isWatered ? 'fill-blue-400' : ''} />
+                  <span className="text-xs font-bold">水やりあり</span>
                 </button>
                 <button
                   onClick={() => isWatered && toggleWater()}
-                  className={`flex-1 flex flex-col items-center justify-center gap-3 p-4 rounded-xl border-2 transition-all ${
+                  className={`flex-1 flex flex-col items-center justify-center gap-1.5 py-2.5 rounded-lg border transition-all ${
                     !isWatered 
                       ? 'border-stone-400 bg-stone-100 text-stone-700' 
                       : 'border-stone-100 bg-stone-50 text-stone-400 hover:border-stone-200'
                   }`}
                 >
-                  <Droplets size={32} className={!isWatered ? 'text-stone-400' : ''} />
-                  <span className="font-bold">水やりなし</span>
+                  <Droplets size={20} className={!isWatered ? 'text-stone-400' : ''} />
+                  <span className="text-xs font-bold">水やりなし</span>
                 </button>
               </div>
             </div>
-            <p className="text-xs text-stone-500 mt-4 text-center">
+            <p className="text-[10px] text-stone-400 mt-3 text-center">
               ※ 次の日に進む前に設定を変更してください。
             </p>
           </div>
@@ -282,49 +332,6 @@ export default function App() {
             <p className="text-stone-700 leading-relaxed min-h-[4rem]">
               {getExplanation()}
             </p>
-          </div>
-
-          {/* データ表示 */}
-          <div className="bg-white rounded-2xl shadow-sm border border-stone-200 p-6">
-            <h2 className="text-sm font-bold text-stone-400 uppercase tracking-wider mb-4">現在のデータ</h2>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="bg-stone-50 p-4 rounded-xl">
-                <div className="flex items-center gap-2 text-stone-500 mb-1">
-                  <Ruler size={16} />
-                  <span className="text-xs font-bold">平均草丈</span>
-                </div>
-                <div className="text-2xl font-light text-stone-800">
-                  {(stats.height / 15).toFixed(1)} <span className="text-sm text-stone-500">cm</span>
-                </div>
-              </div>
-              <div className="bg-stone-50 p-4 rounded-xl">
-                <div className="flex items-center gap-2 text-stone-500 mb-1">
-                  <Leaf size={16} />
-                  <span className="text-xs font-bold">葉の色</span>
-                </div>
-                <div className="text-lg font-medium text-stone-800 flex items-center gap-2 mt-1">
-                  <div 
-                    className="w-4 h-4 rounded-full border border-stone-200" 
-                    style={{ backgroundColor: stats.leafColor }}
-                  />
-                  {currentDay < 2 ? '-' : stats.isDead ? '茶色' : stats.leafColor === '#22C55E' ? '緑色' : '黄色'}
-                </div>
-              </div>
-              <div className="bg-stone-50 p-4 rounded-xl col-span-2">
-                <div className="flex items-center gap-2 text-stone-500 mb-2">
-                  <Droplets size={16} />
-                  <span className="text-xs font-bold">培地の水分量</span>
-                </div>
-                <div className="h-2 bg-stone-200 rounded-full overflow-hidden">
-                  <motion.div 
-                    className={`h-full ${stats.waterLevel > 40 ? 'bg-blue-500' : stats.waterLevel > 0 ? 'bg-amber-500' : 'bg-red-500'}`}
-                    animate={{ width: `${stats.waterLevel}%` }}
-                    transition={{ duration: 0.5 }}
-                  />
-                </div>
-                <div className="text-right text-xs text-stone-500 mt-1">{stats.waterLevel}%</div>
-              </div>
-            </div>
           </div>
         </div>
 
@@ -405,7 +412,19 @@ export default function App() {
                           animate={{ 
                             d: `M 0 ${startY} Q ${cp1X} ${startY - h * 0.5} ${endX} ${currentY}`,
                             strokeWidth: sw,
-                            stroke: stats.isDead ? '#a16207' : stats.leafColor === '#22C55E' ? '#86efac' : '#fef08a'
+                            stroke: stats.isDead 
+                              ? '#a16207' 
+                              : stats.pattern === 'SEEDLING_HEALTHY'
+                                ? '#16a34a' // 濃い緑
+                                : stats.pattern === 'SEEDLING_ETIOLATED'
+                                  ? '#86efac' // 薄い緑
+                                  : stats.pattern === 'SPROUT_GREENED'
+                                    ? '#ffffff' // 白
+                                    : stats.pattern === 'SPROUT_RE_ETIOLATED'
+                                      ? '#f8fafc' // ほぼ白
+                                      : stats.isEtiolated 
+                                        ? '#ffffff'
+                                        : '#fef08a'
                           }}
                           transition={{ duration: 0.8, ease: "easeInOut" }}
                           fill="none"
@@ -414,31 +433,31 @@ export default function App() {
                       )}
 
                       {/* 葉 */}
-                      {h > 15 && (
+                      {h > 5 && (
                         <g transform={`translate(${endX}, ${currentY})`}>
                           {/* 左の葉 */}
-                          <motion.ellipse 
+                          <motion.path 
                             animate={{ 
-                              rx: ls, 
-                              ry: ls * 0.6,
-                              fill: stats.leafColor
+                              d: stats.isNormalSeedling 
+                                ? `M 0 0 C ${-ls*1.5} ${-ls*0.5}, ${-ls*1.5} ${ls*1.5}, 0 0` // 苗：より大きなハート型
+                                : `M 0 0 C ${-ls} ${-ls*0.5}, ${-ls} ${ls}, 0 0`, // スプラウト：シンプルな楕円
+                              fill: stats.leafColor,
+                              scale: stats.isNormalSeedling ? 1.5 : 1
                             }}
-                            transition={{ duration: 0.8, ease: "easeInOut" }}
-                            cx={-ls * 0.8} 
-                            cy={-ls * 0.2} 
-                            transform="rotate(-35)" 
+                            transition={{ duration: 0.8 }}
+                            transform="rotate(-20)"
                           />
                           {/* 右の葉 */}
-                          <motion.ellipse 
+                          <motion.path 
                             animate={{ 
-                              rx: ls, 
-                              ry: ls * 0.6,
-                              fill: stats.leafColor
+                              d: stats.isNormalSeedling 
+                                ? `M 0 0 C ${ls*1.5} ${-ls*0.5}, ${ls*1.5} ${ls*1.5}, 0 0`
+                                : `M 0 0 C ${ls} ${-ls*0.5}, ${ls} ${ls}, 0 0`,
+                              fill: stats.leafColor,
+                              scale: stats.isNormalSeedling ? 1.5 : 1
                             }}
-                            transition={{ duration: 0.8, ease: "easeInOut" }}
-                            cx={ls * 0.8} 
-                            cy={-ls * 0.2} 
-                            transform="rotate(35)" 
+                            transition={{ duration: 0.8 }}
+                            transform="rotate(20)"
                           />
                         </g>
                       )}
@@ -448,14 +467,53 @@ export default function App() {
               </svg>
             </div>
             
-            {/* 状態ラベル */}
-            <div className="absolute top-6 left-6 z-20">
+            {/* 状態ラベル & データオーバーレイ */}
+            <div className="absolute top-6 left-6 right-6 z-20 flex flex-col sm:flex-row justify-between items-start gap-4">
               <div className={`px-4 py-2 rounded-full text-sm font-bold shadow-sm backdrop-blur-md border ${
                 isLightOn 
                   ? 'bg-white/80 text-sky-800 border-sky-200' 
                   : 'bg-slate-800/80 text-slate-200 border-slate-700'
               }`}>
                 {isLightOn ? '☀️ 明所 (光合成中)' : '🌙 暗所 (徒長中)'}
+              </div>
+
+              <div className={`p-4 rounded-2xl shadow-lg backdrop-blur-xl border flex gap-6 ${
+                isLightOn
+                  ? 'bg-white/60 border-white/40 text-stone-800'
+                  : 'bg-slate-900/60 border-slate-700/40 text-slate-100'
+              }`}>
+                <div className="flex flex-col">
+                  <span className="text-[10px] font-bold uppercase tracking-wider opacity-60 mb-1">平均草丈</span>
+                  <span className="text-2xl font-light">
+                    {(stats.height / 15).toFixed(1)} <span className="text-xs opacity-60">cm</span>
+                  </span>
+                </div>
+                <div className="w-px bg-current opacity-10 self-stretch" />
+                <div className="flex flex-col">
+                  <span className="text-[10px] font-bold uppercase tracking-wider opacity-60 mb-1">葉の色</span>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <div 
+                      className="w-3 h-3 rounded-full border border-black/10" 
+                      style={{ backgroundColor: stats.leafColor }}
+                    />
+                    <span className="text-sm font-medium">
+                      {currentDay < 2 ? '-' : stats.isDead ? '茶色' : stats.leafColor === '#22C55E' ? '緑色' : '黄色'}
+                    </span>
+                  </div>
+                </div>
+                <div className="w-px bg-current opacity-10 self-stretch" />
+                <div className="flex flex-col min-w-[100px]">
+                  <span className="text-[10px] font-bold uppercase tracking-wider opacity-60 mb-1">水分量</span>
+                  <div className="flex items-center gap-2 mt-1">
+                    <div className="flex-1 h-1.5 bg-current/10 rounded-full overflow-hidden">
+                      <motion.div 
+                        className={`h-full ${stats.waterLevel > 40 ? 'bg-blue-500' : stats.waterLevel > 0 ? 'bg-amber-500' : 'bg-red-500'}`}
+                        animate={{ width: `${stats.waterLevel}%` }}
+                      />
+                    </div>
+                    <span className="text-xs font-bold">{stats.waterLevel}%</span>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -504,28 +562,56 @@ export default function App() {
                     <h3 className="text-sm font-bold text-stone-400 uppercase tracking-wider mb-4">最終的な状態</h3>
                     <div className="space-y-4">
                       <div className="flex justify-between items-center border-b border-stone-100 pb-2">
+                        <span className="text-stone-500">育成タイプ</span>
+                        <span className="font-bold text-emerald-700">
+                          {stats.isDead ? '枯死' : 
+                           !stats.isGerminated ? '未発芽' :
+                           stats.pattern === 'SEEDLING_HEALTHY' ? '日光を当て続けた苗' :
+                           stats.pattern === 'SEEDLING_ETIOLATED' ? '徒長した苗(光→暗)' :
+                           stats.pattern === 'SPROUT_GREENED' ? '緑化した苗(暗→光)' :
+                           stats.pattern === 'SPROUT_RE_ETIOLATED' ? '再徒長した苗(暗→光→暗)' :
+                           stats.pattern === 'SPROUT_YELLOW' ? '黄色のスプラウト' : '-'}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center border-b border-stone-100 pb-2">
                         <span className="text-stone-500">平均草丈</span>
                         <span className="font-bold text-xl">{(stats.height / 15).toFixed(1)} cm</span>
                       </div>
                       <div className="flex justify-between items-center border-b border-stone-100 pb-2">
                         <span className="text-stone-500">葉の色</span>
-                        <span className="font-bold">{stats.isDead ? '茶色' : stats.leafColor === '#22C55E' ? '緑色' : '黄色'}</span>
+                        <span className="font-bold">{!stats.isGerminated ? '-' : stats.isDead ? '茶色' : stats.leafColor === '#22C55E' ? '緑色' : '黄色'}</span>
                       </div>
                       <div className="flex justify-between items-center border-b border-stone-100 pb-2">
                         <span className="text-stone-500">茎の状態</span>
-                        <span className="font-bold">{stats.isDead ? 'しおれている' : stats.stemWidth > 5 ? '太く丈夫' : '細長い(徒長)'}</span>
+                        <span className="font-bold">
+                          {!stats.isGerminated ? '未発芽' : 
+                           stats.isDead ? 'しおれている' : 
+                           stats.pattern === 'SEEDLING_HEALTHY' ? '太く丈夫' :
+                           stats.pattern === 'SEEDLING_ETIOLATED' ? '太いが徒長気味' :
+                           stats.pattern === 'SPROUT_GREENED' ? '白く細長い(徒長)' :
+                           stats.pattern === 'SPROUT_RE_ETIOLATED' ? '白く細長い(再徒長)' :
+                           '白く細長い(徒長)'}
+                        </span>
                       </div>
                     </div>
                     <div className="bg-emerald-50 p-4 rounded-xl text-sm text-emerald-800 leading-relaxed">
                       <p className="font-bold mb-1">まとめ：</p>
                       {stats.isDead ? (
                         "植物の成長には適切な水分が不可欠です。水分がなくなると細胞の活動が止まり、枯死してしまいます。"
-                      ) : stats.isNormalSeedling ? (
-                        "最初から光を当てて育てたため、茎が伸びる「徒長」が起こりませんでした。葉は立派に育ちましたが、私たちがよく知る「茎の長いスプラウト」にはなりませんでした。"
-                      ) : stats.isEtiolated ? (
-                        "暗所で育てたことで、光を求めて茎が細長く伸びる「徒長（とちょう）」が起こりました。これがスプラウト特有の姿です。最後に光を当てることで、葉を緑色にしています。"
+                      ) : !stats.isGerminated ? (
+                        "一度も水を与えなかったため、種が発芽しませんでした。植物の成長には、まず発芽のための水分が必要です。"
+                      ) : stats.pattern === 'SEEDLING_HEALTHY' ? (
+                        "【日光を当て続けた苗】最初から光を当てて育てたため、茎が太く丈夫で、葉が大きく緑色に育ちました。光合成を最大限に行うための理想的な姿です。"
+                      ) : stats.pattern === 'SEEDLING_ETIOLATED' ? (
+                        "【日光を当てて、暗くして徒長した苗】最初は健康な苗として育ちましたが、途中で暗所に入れたことで、再び光を求めて茎が細長く伸び始めました。一度緑になった葉も、光がないと元気がなくなります。"
+                      ) : stats.pattern === 'SPROUT_GREENED' ? (
+                        "【暗い所に置き、最後に光を当てた苗】最初は暗所で茎を白く長く伸ばし（徒長）、最後に光を当てて葉を緑色（緑化）にしました。これが私たちが食べるスプラウトの標準的な姿です。"
+                      ) : stats.pattern === 'SPROUT_RE_ETIOLATED' ? (
+                        "【途中で緑化させ、暗所に戻した苗】一度光を当てて葉を緑にしましたが、再び暗所に戻したことで、さらに光を求めて茎が伸び続けました。植物は環境の変化に敏感に反応して姿を変えます。"
+                      ) : stats.pattern === 'SPROUT_YELLOW' ? (
+                        "【ずっと暗所で育てたスプラウト】一度も光を浴びなかったため、葉は黄色のままで、茎は極限まで細長く伸びました。光合成ができないため、種に蓄えられた養分だけで必死に伸びている状態です。"
                       ) : (
-                        "光と水を適切に与えたことで、健康な苗に育ちました。スプラウトとして収穫するには、初期の暗所管理が重要であることがわかります。"
+                        "光と水の管理によって、植物の姿が大きく変わることがわかりました。環境に合わせて姿を変える「環境応答」の仕組みが観察できました。"
                       )}
                     </div>
                   </div>
