@@ -386,9 +386,9 @@ export default function App() {
             {/* 収穫結果オーバーレイ */}
             {showResult && (
               <motion.div 
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                className="absolute inset-0 z-50 bg-stone-900/80 backdrop-blur-sm flex items-center justify-center p-6"
+                initial={{ opacity: 0, x: 100 }}
+                animate={{ opacity: 1, x: 0 }}
+                className="absolute right-0 top-0 bottom-0 z-50 w-full md:w-1/2 bg-stone-900/50 backdrop-blur-sm flex items-center justify-center p-6"
               >
                 <motion.div 
                   initial={{ scale: 0.9, y: 20 }}
